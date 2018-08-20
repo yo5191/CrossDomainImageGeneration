@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.utils.data as Data
 import torchvision
 import matplotlib.pyplot as plt
+#from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib.image as mpimg
 import numpy as np
@@ -16,7 +17,6 @@ import time
 from PIL import Image
 import sys
 import random
-
 
 #Folders used #TODO - update those folders
 MUSTACHE_DIR = "/home/student4/link/train_m/" #Folder contains mustache images for training
@@ -30,11 +30,11 @@ SAVE_D_WEIGHTS =   "/home/student4/link/ae8_results/new_discriminator.pth" #savi
 
 # Hyper Parameters
 ALPHA = 100         #As defined in the originial article
-BETTA = 1
+BETTA = 100
 GAMMA = 0
-EPOCH = 500         #number of epochs
+EPOCH = 250         #number of epochs
 BATCH_SIZE = 64
-NOISE = 0.1          #initial noise
+NOISE = 0.01         #initial noise
 G_LR = 0.0001        #G learning rate
 D_LR = 0.0001        #D learning rate
 N_MUSTACHE_IMG = BATCH_SIZE * 121 #Number of Train images
@@ -47,8 +47,6 @@ IMG_SIZE = HEIGHT * WIDTH * CHANNELS
 IS_GPU = 1 #Please note the code only tested when IS_GPU=1
 LOAD_WEIGHTS = 1 #Load the weights of the autoencoder
 
-
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -56,7 +54,6 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
-
 
 def gaussian_noise(inputs, mean=0, stddev=0.01):
     input = inputs.cpu()
@@ -99,9 +96,11 @@ class Faces(Data.Dataset):
     """Faces."""
 
     def __init__(self, root_dir, transform, size):
+
+        #self.landmarks_frame = pd.read_csv(csv_file)
         self.root_dir = root_dir
         self.transform = transform
-        self.size = size
+        self.size = size #TODO
 
     def __len__(self):
         return self.size #number of images
@@ -110,7 +109,9 @@ class Faces(Data.Dataset):
         img_name = os.path.join(self.root_dir, str(idx)+".jpg")
         image = Image.open(img_name)
         sample = self.transform(image)
+
         return sample
+
 
 transform = transforms.Compose(
     [transforms.Resize((HEIGHT, WIDTH)),
@@ -131,7 +132,7 @@ test_loader = Data.DataLoader(dataset=test_data, batch_size=BATCH_SIZE, shuffle=
 class D_NET(nn.Module):
     def __init__(self):
         super(D_NET, self).__init__()
-        self.ndf = 4
+        self.ndf = 2
         self.e1 = nn.Conv2d(3, self.ndf, 3, 2, 1)
         self.bn1 = nn.BatchNorm2d(self.ndf)
         self.r1 = nn.Conv2d(3, self.ndf*2, 5, 1, 2)
@@ -154,16 +155,15 @@ class D_NET(nn.Module):
         self.bnr5 = nn.BatchNorm2d(self.ndf * 32)
         self.e6 = nn.Conv2d(self.ndf * 32, self.ndf * 16, 3, 2, 1)
         self.bn6 = nn.BatchNorm2d(self.ndf * 16)
-        self.e7 = nn.Conv2d(self.ndf * 16, self.ndf * 8, 3, 2, 1)
-        self.bn7 = nn.BatchNorm2d(self.ndf * 8)
-        self.fc1 = nn.Linear(self.ndf * 16 * 64 * 8, 1)
+        self.e7 = nn.Conv2d(self.ndf * 16, self.ndf, 3, 2, 1)
+        self.bn7 = nn.BatchNorm2d(self.ndf)
+        self.fc1 = nn.Linear(self.ndf * 16 * 64, 3)
         self.relu = nn.ReLU()
         self.leakyrelu = nn.LeakyReLU(0.2)
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-
         f1 = self.leakyrelu(self.bnr1(self.r1(x)))
         f2 = self.leakyrelu(self.bnr2(self.r2(f1)))
         f3 = self.leakyrelu(self.bnr3(self.r3(f2)))
@@ -171,9 +171,9 @@ class D_NET(nn.Module):
         f5 = self.leakyrelu(self.bnr5(self.r5(f4)))
         h6 = self.leakyrelu(self.bn6(self.e6(f5)))
         h7 = self.leakyrelu(self.bn7(self.e7(h6)))
-        h7 = h7.view(-1, self.ndf * 16 * 64 * 8)
+        h7 = h7.view(-1, self.ndf * 16 * 64)
         h8 = self.sigmoid(self.fc1(h7))
-        h8 = h8.view(-1)
+        h8 = h8.view(-1,3)
         return h8
 
 
@@ -318,7 +318,6 @@ class AutoEncoder(nn.Module):
         r51 = r31 + r51
         r61 = self.leakyrelu(r51)
 
-
         h5 = self.leakyrelu(self.b5(self.tc5(r61)))
         h6 = self.leakyrelu(self.b6(self.tc6(h5)))
         h7 = self.leakyrelu(self.b7(self.tc7(h6)))
@@ -334,9 +333,9 @@ class AutoEncoder(nn.Module):
 if (IS_GPU == 1):
     ae = AutoEncoder().cuda()
     d_net = D_NET().cuda()
-    d_net.apply(weights_init)
     if (LOAD_WEIGHTS == 1):
         #d_net.load_state_dict(torch.load(D_WEIGHTS))
+        d_net.apply(weights_init)
         ae.load_state_dict(torch.load(AE_WEIGHTS))
         #stop updating the encoder
         for p in ae.e0.parameters():
@@ -384,6 +383,7 @@ if (IS_GPU == 1):
 else:
     ae = AutoEncoder()
 
+
 #Loss criterion
 mse_criterion = nn.MSELoss()
 cel_criterion = nn.CrossEntropyLoss().cuda()
@@ -394,7 +394,7 @@ g_optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, ae.parameters()
 d_optimizer = torch.optim.Adam(d_net.parameters(), lr=D_LR)
 
 #Label to compare to in loss criterion
-label_0, label_1, label_2 = (torch.FloatTensor(BATCH_SIZE) for i in range(3))
+label_0, label_1, label_2 = (torch.LongTensor(BATCH_SIZE) for i in range(3))
 if (IS_GPU == 1):
     label_0 = Variable(label_0.cuda())
     label_1 = Variable(label_1.cuda())
@@ -438,7 +438,7 @@ for epoch in range(EPOCH):
         m_img = mustache_iter.next() #mustache
         t_img = train_iter.next() #without mustache
 
-        #with probability 0.5 flip horizontally
+        # with probability 0.5 flip horizontally
         for j in range(0,BATCH_SIZE):
             coin = random.random()
             if coin > 0.5 :
@@ -453,7 +453,6 @@ for epoch in range(EPOCH):
                 temp = n_transform(temp)
                 m_img[j] = temp
 
-        # with probability 0.5 flip horizontally
         for j in range(0,BATCH_SIZE):
             coin = random.random()
             if coin > 0.5 :
@@ -468,7 +467,6 @@ for epoch in range(EPOCH):
                 temp = n_transform(temp)
                 t_img[j] = temp
 
-
         if (IS_GPU == 1):
             m_img = Variable(m_img).cuda()
             t_img = Variable(t_img).cuda()
@@ -479,92 +477,66 @@ for epoch in range(EPOCH):
         m_img = m_img.view(BATCH_SIZE, CHANNELS, HEIGHT, WIDTH)
         t_img = t_img.view(BATCH_SIZE, CHANNELS, HEIGHT, WIDTH)
 
-        #Add decaying gaussian noise to the images
         m_img  = gaussian_noise(m_img, mean=0, stddev=current_noise)
         t_img = gaussian_noise(t_img, mean=0, stddev=current_noise)
 
-        d_loss = 0.0
-        g_loss = 0.0
-
-        if train_d_flag:
+        if i % 100 == 0: #Train the discriminator one batch for 100 batches of generator training
             #---=== TRAIN D ===---#
             d_net.train()
             ae.eval()
             d_optimizer.zero_grad()
-
+            d3 = d_net(m_img)
+            loss_d3 = cel_criterion(d3, label_2)
             m_img_after_ae = ae(m_img)[1]
             d2 = d_net(m_img_after_ae.detach())
-
+            loss_d2 = cel_criterion(d2, label_1)
             t_img_after_ae = ae(t_img)[1]
             d1 = d_net(t_img_after_ae.detach())
+            loss_d1 = cel_criterion(d1, label_0)
 
-            loss_d2 = bce_criterion(d2, label_1)
+            d_loss = loss_d1 + loss_d2 + loss_d3
 
-            loss_d1 = bce_criterion(d1, label_0)
-            d_loss = loss_d1 + loss_d2
-
-            # train
             d_loss.backward()
             d_optimizer.step()
-            # compute average loss
-            avg_d = avg_d + float(d_loss[0])
-            d_cnt = d_cnt + 1
 
 
-        if not train_d_flag:
+        if 1 == 1:
             #---=== TRAIN G ===---#
             d_net.eval()
             ae.train()
             g_optimizer.zero_grad()
 
-            #LTID
+            # LTID
             ae_out_m = ae(m_img)[1]
             Ltid = mse_criterion(ae_out_m, m_img)
 
-            #In simple architecture we ignore Lconst and Ltv.
-            Lconst = 0
-            Ltv = 0
+            # Lconst
+            after_ae = ae(t_img)
+            f_t = after_ae[0]  # f(x)
+            g_f_t = after_ae[1]  # g(f(x))
+            f_g_f_t = ae(g_f_t)[0]  # f(g(f(x)))
+            f_g_f_t = f_g_f_t
+            Lconst = mse_criterion(f_g_f_t, f_t)
 
-            #LGANG
-
+            # LGANG
+            m_img_after_ae = ae(m_img)[1]
+            d2 = d_net(m_img_after_ae)
+            loss_d2 = cel_criterion(d2, label_2)  # FIXME
             t_img_after_ae = ae(t_img)[1]
             d1 = d_net(t_img_after_ae)
-            loss_d1 = bce_criterion(d1, label_1)
-            Lgang = loss_d1
+            loss_d1 = cel_criterion(d1, label_2)  # FIXME
+            Lgang = loss_d1 + loss_d2
+
+            # Ltv
+            # Ltv = g_train_smoothing_functions(m_img_after_ae) + g_train_smoothing_functions(t_img_after_ae);
+            Ltv = 0  # Ltv / 2
 
             g_loss = Lgang + ALPHA * Lconst + BETTA * Ltid + GAMMA * Ltv
 
-            #train
             g_loss.backward()
             g_optimizer.step()
-
-            #compute average loss
             avg_g = avg_g + float(g_loss[0])
             g_cnt = g_cnt + 1
-
-
-
-    # --=== END of EPOCH ===---
-
-    #debug print
-    print("d_cnt,avg_d = "+ str(d_cnt) +","+ str(avg_d))
-
-    # calculate average loss
-    if(d_cnt > 0):
-        avg_d = avg_d / d_cnt
-    if(g_cnt > 0):
-        avg_g = avg_g / g_cnt
-
-    #Id d_loss is low, start training G
-    if train_d_flag and avg_d < 0.1:  # FIXME
-        train_d_flag = False
-        print("Train G!")
-        print("avg_d" + str(avg_d))
-    if not train_d_flag:
-        # Id g_loss is low, start training D
-        if avg_g < 10 and avg_g > 0:
-            train_d_flag = True
-            print("Train D!")
 
 
     # ===================log========================
@@ -572,16 +544,13 @@ for epoch in range(EPOCH):
     print("=============")
     try:
         print('epoch [{}/{}], d_loss:{:.4f}, g_loss:{:.4f}, time:{}'
-          .format(epoch + 1, EPOCH, avg_d, avg_g, end - start))
-        #print("Lgang " + str(Lgang))
-        #print("Lconst " + str(Lconst))
-        #print("Ltid " + str(Ltid))
-        #print("noise" + str(current_noise))
+          .format(epoch + 1, EPOCH, d_loss, g_loss, end - start))
     except NameError:
         print('epoch [{}/{}], d_loss:{:.4f}, time:{}'
-              .format(epoch + 1, EPOCH, avg_d, end - start))
+              .format(epoch + 1, EPOCH, d_loss, end - start))
         print("noise" + str(current_noise))
     print("=============")
+
     sys.stdout.flush()
 
     #Run and save tests every 5 epochs
