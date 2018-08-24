@@ -1,4 +1,5 @@
 # Using Unsupervised Cross-Domain Generation For Mustache Transplant
+Please read our project summary, our_project.pdf.
 
 # Run
  - Note that at the begining of each file there is hardcoded paths for essential folders such as training data or pretrained weights, before running the files please make sure those path are accurate.
