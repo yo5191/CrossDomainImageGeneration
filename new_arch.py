@@ -492,11 +492,11 @@ for epoch in range(EPOCH):
             ae.eval()
             d_optimizer.zero_grad()
 
-            m_img_after_ae = ae(m_img)[1]
-            d2 = d_net(m_img_after_ae.detach())
+            d2 = d_net(m_img)
 
-            t_img_after_ae = ae(t_img)[1]
-            d1 = d_net(t_img_after_ae.detach())
+            t_img_after_ae = ae(t_img)[1].detach()
+            t_img_after_ae = t_img - t_img_after_ae
+            d1 = d_net(t_img_after_ae)
 
             loss_d2 = bce_criterion(d2, label_1)
 
@@ -518,8 +518,9 @@ for epoch in range(EPOCH):
             g_optimizer.zero_grad()
 
             #LTID
-            ae_out_m = ae(m_img)[1]
-            Ltid = mse_criterion(ae_out_m, m_img)
+            m_img_after_ae = ae(m_img)[1].detach()
+            m_img_after_ae = m_img - m_img_after_ae
+            Ltid = mse_criterion(m_img_after_ae, m_img)
 
             #In simple architecture we ignore Lconst and Ltv.
             Lconst = 0
@@ -528,6 +529,7 @@ for epoch in range(EPOCH):
             #LGANG
 
             t_img_after_ae = ae(t_img)[1]
+            t_img_after_ae = t_img - t_img_after_ae
             d1 = d_net(t_img_after_ae)
             loss_d1 = bce_criterion(d1, label_1)
             Lgang = loss_d1
